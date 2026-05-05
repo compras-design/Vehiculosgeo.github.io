@@ -133,6 +133,15 @@
   .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  .pin-row { display: flex; gap: 10px; justify-content: center; margin: 1.25rem 0; }
+  .pin-digit { width: 52px; height: 60px; font-size: 24px; font-weight: 700; text-align: center; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-family: 'DM Mono', monospace; background: var(--bg); color: var(--text); outline: none; transition: border-color 0.12s; }
+  .pin-digit:focus { border-color: var(--accent); background: var(--accent-light); }
+  .pin-error { color: var(--red); font-size: 13px; text-align: center; margin-top: -8px; margin-bottom: 8px; display: none; }
+  .admin-badge { background: #1C1917; color: white; border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 600; letter-spacing: 0.3px; display: none; align-items: center; gap: 5px; }
+  .admin-badge.visible { display: flex; }
+  .admin-logout { background: none; border: none; color: rgba(255,255,255,0.6); cursor: pointer; font-size: 14px; margin-left: 4px; padding: 0; line-height: 1; }
+  .admin-logout:hover { color: white; }
+
   @media (max-width: 480px) {
     .stats-row { grid-template-columns: 1fr 1fr; }
     .grid2 { grid-template-columns: 1fr; }
@@ -150,6 +159,23 @@
     <div class="modal-header"><h2>👋 ¿Quién eres?</h2></div>
     <p>Selecciona tu nombre para llenar la bitácora</p>
     <div class="driver-list" id="driver-list-modal"></div>
+  </div>
+</div>
+
+<!-- PIN ADMIN -->
+<div class="overlay hidden" id="overlay-pin">
+  <div class="modal" style="max-width:340px;text-align:center">
+    <div style="font-size:32px;margin-bottom:8px">🔐</div>
+    <h2 style="margin-bottom:6px">Acceso administrador</h2>
+    <p>Ingresa tu PIN de 4 dígitos</p>
+    <div class="pin-row">
+      <input class="pin-digit" type="password" maxlength="1" id="pin1" inputmode="numeric" oninput="pinNext(this,'pin2')">
+      <input class="pin-digit" type="password" maxlength="1" id="pin2" inputmode="numeric" oninput="pinNext(this,'pin3')" onkeydown="pinBack(event,this,'pin1')">
+      <input class="pin-digit" type="password" maxlength="1" id="pin3" inputmode="numeric" oninput="pinNext(this,'pin4')" onkeydown="pinBack(event,this,'pin2')">
+      <input class="pin-digit" type="password" maxlength="1" id="pin4" inputmode="numeric" oninput="checkPin()" onkeydown="pinBack(event,this,'pin3')">
+    </div>
+    <div class="pin-error" id="pin-error">PIN incorrecto. Intenta de nuevo.</div>
+    <button class="btn-sm" onclick="closeModal('overlay-pin')" style="margin:0 auto">Cancelar</button>
   </div>
 </div>
 
@@ -204,14 +230,18 @@
     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg>
     <span id="driver-pill-name">Seleccionar conductor</span>
   </div>
+  <div class="admin-badge" id="admin-badge">
+    ⚙️ Admin <button class="admin-logout" onclick="logoutAdmin()" title="Salir de admin">✕</button>
+  </div>
 </div>
 
 <!-- NAV -->
 <div class="nav-bar">
   <div class="nav-item active" onclick="goTo('nuevo')"     id="nav-nuevo">📝 Nuevo</div>
-  <div class="nav-item"        onclick="goTo('historial')" id="nav-historial">📋 Historial</div>
-  <div class="nav-item"        onclick="goTo('flota')"     id="nav-flota">👥 Flota</div>
-  <div class="nav-item"        onclick="goTo('admin')"     id="nav-admin">⚙️ Admin</div>
+  <div class="nav-item admin-only" onclick="goTo('historial')" id="nav-historial" style="display:none">📋 Historial</div>
+  <div class="nav-item admin-only" onclick="goTo('flota')"     id="nav-flota"     style="display:none">👥 Flota</div>
+  <div class="nav-item admin-only" onclick="goTo('admin')"     id="nav-admin"     style="display:none">⚙️ Admin</div>
+  <div class="nav-item" onclick="showPinModal()" id="nav-admin-lock" style="color:var(--text-faint)">🔐</div>
 </div>
 
 <div class="main">
@@ -394,6 +424,7 @@
 // ── STATE ──────────────────────────────────────────────
 const S = {
   records: [], drivers: [], vehicles: [],
+  isAdmin: false,
   currentDriver: null, currentType: 'viaje',
   scriptUrl: '', sheetUrl: '', email: ''
 };
@@ -406,7 +437,14 @@ function init() {
 
   // Agregar conductores iniciales si la lista está vacía
   if (S.drivers.length === 0) {
-    S.drivers = [{ id: uid(), name: 'Dennis Acosta', license: '', phone: '' }];
+    S.drivers = [
+      { id: uid(), name: 'Dennis Acosta',     license: '', phone: '' }
+    ];
+    persist();
+  }
+  // Siempre asegurar que Alejandro Fonseca exista como admin
+  if (!S.drivers.find(d => d.name === 'Alejandro Fonseca')) {
+    S.drivers.push({ id: uid(), name: 'Alejandro Fonseca', license: '', phone: '' });
     persist();
   }
 
@@ -420,6 +458,10 @@ function init() {
   setDefaultDateTime();
   populateFormSelects();
   buildDriverModal();
+
+  // Restore admin session (persists while tab is open)
+  S.isAdmin = sessionStorage.getItem('bfl_admin') === '1';
+  applyRole();
 
   const saved = localStorage.getItem('bfl_current_driver');
   if (saved) {
@@ -454,6 +496,8 @@ function uid()    { return Date.now().toString(36) + Math.random().toString(36).
 function initials(n) { return (n||'?').trim().split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase(); }
 
 // ── DRIVER MODAL ───────────────────────────────────────
+const ADMIN_DRIVER = 'Alejandro Fonseca';
+
 function buildDriverModal() {
   const list = document.getElementById('driver-list-modal');
   if (S.drivers.length === 0) {
@@ -462,11 +506,28 @@ function buildDriverModal() {
   }
   list.innerHTML = S.drivers.map(d => {
     const safe = JSON.stringify(d).replace(/'/g, "&#39;");
-    return `<div class="driver-option" onclick='selectDriver(${safe})'>
+    const isAdminUser = d.name === ADMIN_DRIVER;
+    return `<div class="driver-option" onclick='${isAdminUser ? "pickAdminDriver(" + safe + ")" : "selectDriver(" + safe + ")"}'>
       <div class="d-avatar">${initials(d.name)}</div>
-      <div><div class="d-name">${d.name}</div><div class="d-sub">${d.license || 'Sin licencia registrada'}</div></div>
+      <div style="flex:1">
+        <div class="d-name">${d.name}</div>
+        <div class="d-sub">${isAdminUser ? '🔐 Administrador' : (d.license || 'Conductor')}</div>
+      </div>
+      ${isAdminUser ? '<span style="font-size:18px">🔐</span>' : ''}
     </div>`;
   }).join('');
+}
+
+function pickAdminDriver(d) {
+  // Store pending admin driver, then show PIN
+  S._pendingAdminDriver = d;
+  closeModal('overlay-driver');
+  ['pin1','pin2','pin3','pin4'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('pin-error').style.display = 'none';
+  // Override checkPin to also set driver on success
+  S._adminFromLogin = true;
+  document.getElementById('overlay-pin').classList.remove('hidden');
+  setTimeout(() => document.getElementById('pin1').focus(), 100);
 }
 
 function showDriverModal() { document.getElementById('overlay-driver').classList.remove('hidden'); }
@@ -825,6 +886,65 @@ function clearData() {
   if (!confirm('¿Borrar todos los registros locales?')) return;
   S.records = []; persist(); renderHistory();
   toast('Registros borrados');
+}
+
+// ── ADMIN / PIN ────────────────────────────────────────
+const ADMIN_PIN = '8901';
+
+function showPinModal() {
+  ['pin1','pin2','pin3','pin4'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('pin-error').style.display = 'none';
+  document.getElementById('overlay-pin').classList.remove('hidden');
+  setTimeout(() => document.getElementById('pin1').focus(), 100);
+}
+
+function pinNext(el, nextId) {
+  if (el.value.length === 1) document.getElementById(nextId).focus();
+}
+
+function pinBack(e, el, prevId) {
+  if (e.key === 'Backspace' && el.value === '') document.getElementById(prevId).focus();
+}
+
+function checkPin() {
+  const pin = ['pin1','pin2','pin3','pin4'].map(id => document.getElementById(id).value).join('');
+  if (pin.length < 4) return;
+  if (pin === ADMIN_PIN) {
+    S.isAdmin = true;
+    sessionStorage.setItem('bfl_admin', '1');
+    closeModal('overlay-pin');
+    applyRole();
+    if (S._adminFromLogin && S._pendingAdminDriver) {
+      selectDriver(S._pendingAdminDriver, false);
+      S._adminFromLogin = false;
+      S._pendingAdminDriver = null;
+    }
+    goTo('historial');
+    toast('✅ Bienvenido, Alejandro 👋');
+  } else {
+    document.getElementById('pin-error').style.display = 'block';
+    ['pin1','pin2','pin3','pin4'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('pin1').focus();
+  }
+}
+
+function logoutAdmin() {
+  if (!confirm('¿Salir del modo administrador?')) return;
+  S.isAdmin = false;
+  sessionStorage.removeItem('bfl_admin');
+  applyRole();
+  goTo('nuevo');
+  toast('Sesión de admin cerrada');
+}
+
+function applyRole() {
+  const isAdmin = S.isAdmin;
+  // Show/hide admin nav items
+  document.querySelectorAll('.admin-only').forEach(el => el.style.display = isAdmin ? '' : 'none');
+  // Show/hide lock icon
+  document.getElementById('nav-admin-lock').style.display = isAdmin ? 'none' : '';
+  // Show/hide admin badge
+  document.getElementById('admin-badge').classList.toggle('visible', isAdmin);
 }
 
 // ── TOAST ──────────────────────────────────────────────
