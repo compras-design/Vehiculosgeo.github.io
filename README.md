@@ -434,7 +434,7 @@ const S = {
 async function init() {
   // Default config — hardcoded so all devices work automatically
   const DEFAULT_SCRIPT = 'https://script.google.com/macros/s/AKfycbzm6dP6E0azPXi84P15f8CIyW2w2ngzKDVjIwoiqPNDy6v6fGD6D0iV_LkQKrz5aFju/exec';
-  const DEFAULT_SHEET  = 'https://docs.google.com/spreadsheets/d/1tZiAT8Xtfomgzu8nqAa5FK8InXxSsjvlQHZxXHIslsU/edit?usp=sharing';
+  const DEFAULT_SHEET  = 'https://docs.google.com/spreadsheets/d/1tZiAT8Xtfomgzu8nqAa5FK8InXxSsjvlQHZxXHIslsU/edit';
   const DEFAULT_EMAIL  = 'compras@geotecnica.hn';
 
   S.scriptUrl = localStorage.getItem('bfl_script') || DEFAULT_SCRIPT;
@@ -1103,4 +1103,5 @@ window.onload = init;
 </script>
 </body>
 </html>
+
 
