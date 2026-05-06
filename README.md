@@ -443,21 +443,11 @@ async function init() {
   setDefaultDateTime();
 
   // Load from Sheets if configured, otherwise fallback to localStorage
-  if (S.scriptUrl) {
-    showSyncBanner('Sincronizando datos...');
-    try {
-      const res = await fetch(S.scriptUrl + '?type=all');
-      const json = await res.json();
-      if (json.success) {
-        S.drivers  = json.drivers  || [];
-        S.vehicles = json.vehicles || [];
-        S.records  = json.records  || [];
-        persist(); // cache locally
-      } else { loadFromLocal(); }
-    } catch(e) { loadFromLocal(); }
-    hideSyncBanner();
-  } else {
-    loadFromLocal();
+  loadFromLocal(); // always load cache first for fast startup
+
+  if (S.sheetUrl) {
+    // Sync from Sheets in background after rendering
+    setTimeout(() => syncAll(), 100);
   }
 
   // Always ensure Alejandro Fonseca exists as admin driver
@@ -1009,26 +999,86 @@ function applyRole() {
 }
 
 // ── SYNC ALL ───────────────────────────────────────────
+// Reads data from published Google Sheet CSV tabs
 async function syncAll() {
-  if (!S.scriptUrl) { toast('Configura el Google Apps Script en Admin primero'); return; }
-  showSyncBanner('Sincronizando...');
+  if (!S.sheetUrl) { toast('Configura la URL del Google Sheet en Admin primero'); return; }
+  
+  const sheetId = extractSheetId(S.sheetUrl);
+  if (!sheetId) { toast('⚠️ URL del Google Sheet inválida'); return; }
+
+  showSyncBanner('Sincronizando datos...');
   try {
-    const res = await fetch(S.scriptUrl + '?type=all');
-    const json = await res.json();
-    if (json.success) {
-      S.drivers  = json.drivers  || [];
-      S.vehicles = json.vehicles || [];
-      S.records  = json.records  || [];
-      persist();
-      populateFormSelects();
-      buildDriverModal();
-      renderDriversList();
-      renderVehiclesList();
-      renderHistory();
-      toast('✅ Datos sincronizados');
-    } else { toast('⚠️ Error al sincronizar: ' + json.error); }
-  } catch(e) { toast('⚠️ Sin conexión a Google Sheets'); }
+    const [drivers, vehicles, records] = await Promise.all([
+      fetchSheetCSV(sheetId, 'Conductores'),
+      fetchSheetCSV(sheetId, 'Vehículos'),
+      fetchSheetCSV(sheetId, 'Bitácora')
+    ]);
+
+    if (drivers  !== null) S.drivers  = drivers;
+    if (vehicles !== null) S.vehicles = vehicles;
+    if (records  !== null) S.records  = records;
+
+    persist();
+    populateFormSelects();
+    buildDriverModal();
+    renderDriversList();
+    renderVehiclesList();
+    renderHistory();
+    toast('✅ Datos sincronizados');
+  } catch(e) {
+    console.error(e);
+    toast('⚠️ Error al sincronizar. Verifica que el Sheet sea público.');
+  }
   hideSyncBanner();
+}
+
+function extractSheetId(url) {
+  const m = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : null;
+}
+
+async function fetchSheetCSV(sheetId, tabName) {
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const text = await res.text();
+  return parseCSV(text, tabName);
+}
+
+function parseCSV(text, tabName) {
+  const lines = text.trim().split('\n');
+  if (lines.length <= 1) return [];
+  // Skip header row (index 0)
+  const rows = lines.slice(1).map(line => {
+    // Parse CSV properly handling quoted fields
+    const fields = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') { inQ = !inQ; }
+      else if (c === ',' && !inQ) { fields.push(cur.trim()); cur = ''; }
+      else { cur += c; }
+    }
+    fields.push(cur.trim());
+    return fields;
+  }).filter(r => r[0] && r[0] !== '""' && r[0] !== '');
+
+  if (tabName === 'Conductores') {
+    return rows.map(r => ({ id: r[0], name: r[1], license: r[2], phone: r[3] }));
+  }
+  if (tabName === 'Vehículos') {
+    return rows.map(r => ({ id: r[0], plate: r[1], model: r[2], year: r[3], type: r[4], color: r[5] }));
+  }
+  if (tabName === 'Bitácora') {
+    return rows.map(r => ({
+      id: r[0], fecha: r[1], hora: r[2], tipo: r[3], conductor: r[4],
+      vehiculo: r[5], modeloVehiculo: r[6], origen: r[7], destino: r[8],
+      kmInicial: r[9], kmFinal: r[10], kmRecorridos: r[11], proposito: r[12],
+      litros: r[13], costoLempiras: r[14], estacion: r[15],
+      tipoCombustible: r[16], notas: r[17], timestamp: r[18]
+    }));
+  }
+  return [];
 }
 
 // ── TOAST ──────────────────────────────────────────────
