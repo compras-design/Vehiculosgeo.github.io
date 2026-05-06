@@ -142,12 +142,33 @@
   .admin-logout { background: none; border: none; color: rgba(255,255,255,0.6); cursor: pointer; font-size: 14px; margin-left: 4px; padding: 0; line-height: 1; }
   .admin-logout:hover { color: white; }
 
+  /* FUEL GAUGE */
+  .fuel-gauge-wrap { margin-bottom: 12px; }
+  .fuel-gauge-wrap label { font-size: 12px; font-weight: 500; color: var(--text-muted); display: block; margin-bottom: 8px; }
+  .fuel-levels { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  .fuel-level-btn { border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 8px 4px; text-align: center; cursor: pointer; background: var(--surface); transition: all 0.12s; }
+  .fuel-level-btn:hover { border-color: var(--amber); background: var(--amber-light); }
+  .fuel-level-btn.sel { border-color: var(--amber); background: var(--amber-light); }
+  .fuel-level-btn .fill-icon { font-size: 18px; display: block; margin-bottom: 2px; }
+  .fuel-level-btn .fill-lbl { font-size: 10px; font-weight: 600; color: var(--text-muted); }
+  .fuel-level-btn.sel .fill-lbl { color: var(--amber); }
+
+  /* PHOTO UPLOAD */
+  .photo-upload-area { border: 1.5px dashed var(--border); border-radius: var(--radius-sm); padding: 1rem; text-align: center; cursor: pointer; transition: all 0.12s; background: var(--bg); margin-bottom: 12px; }
+  .photo-upload-area:hover { border-color: var(--accent); background: var(--accent-light); }
+  .photo-upload-area.has-photo { border-color: var(--green); border-style: solid; background: var(--green-light); }
+  .photo-upload-area .upload-icon { font-size: 24px; margin-bottom: 4px; }
+  .photo-upload-area p { font-size: 13px; color: var(--text-muted); margin: 0; }
+  .photo-preview { width: 100%; max-height: 200px; object-fit: cover; border-radius: var(--radius-sm); margin-top: 8px; display: none; }
+  .photo-uploading { font-size: 12px; color: var(--accent); margin-top: 6px; display: none; }
+
   @media (max-width: 480px) {
     .stats-row { grid-template-columns: 1fr 1fr; }
     .grid2 { grid-template-columns: 1fr; }
     .grid3 { grid-template-columns: 1fr 1fr; }
     .type-grid { grid-template-columns: 1fr; }
     .entity-stat { display: none; }
+    .fuel-levels { grid-template-columns: repeat(3, 1fr); }
   }
 </style>
 </head>
@@ -298,8 +319,31 @@
           <select id="f-tipo-comb"><option>Diesel</option><option>Regular</option><option>Premium</option></select>
         </div>
       </div>
-      <div class="fg" style="margin-bottom:0"><label>Gasolinera / Estación</label>
+      <div class="fg"><label>Gasolinera / Estación</label>
         <input type="text" id="f-estacion" placeholder="Ej: Delta, UNO, Texaco, Puma...">
+      </div>
+
+      <div class="fuel-gauge-wrap">
+        <label>Nivel de combustible al cargar</label>
+        <div class="fuel-levels">
+          <div class="fuel-level-btn" onclick="setFuelLevel('Vacío')"      id="fl-vacio">  <span class="fill-icon">⬜</span><span class="fill-lbl">Vacío</span></div>
+          <div class="fuel-level-btn" onclick="setFuelLevel('1/4')"        id="fl-1/4">    <span class="fill-icon">🟥</span><span class="fill-lbl">1/4</span></div>
+          <div class="fuel-level-btn" onclick="setFuelLevel('1/2')"        id="fl-1/2">    <span class="fill-icon">🟧</span><span class="fill-lbl">1/2</span></div>
+          <div class="fuel-level-btn" onclick="setFuelLevel('3/4')"        id="fl-3/4">    <span class="fill-icon">🟨</span><span class="fill-lbl">3/4</span></div>
+          <div class="fuel-level-btn" onclick="setFuelLevel('Lleno')"      id="fl-lleno">  <span class="fill-icon">🟩</span><span class="fill-lbl">Lleno</span></div>
+          <div class="fuel-level-btn" onclick="setFuelLevel('Reserva')"    id="fl-reserva"><span class="fill-icon">⚠️</span><span class="fill-lbl">Reserva</span></div>
+        </div>
+      </div>
+
+      <div class="fuel-gauge-wrap" style="margin-bottom:0">
+        <label>Foto del comprobante / ticket</label>
+        <div class="photo-upload-area" id="photo-drop" onclick="document.getElementById('f-photo').click()">
+          <div class="upload-icon">📷</div>
+          <p id="photo-label">Toca para tomar foto o seleccionar imagen</p>
+          <img id="photo-preview" class="photo-preview" alt="Vista previa">
+          <div class="photo-uploading" id="photo-uploading">⏳ Subiendo a Google Drive...</div>
+        </div>
+        <input type="file" id="f-photo" accept="image/*" capture="environment" style="display:none" onchange="handlePhoto(this)">
       </div>
     </div>
 
@@ -427,6 +471,7 @@ const S = {
   records: [], drivers: [], vehicles: [],
   isAdmin: false,
   currentDriver: null, currentType: 'viaje',
+  fuelLevel: '', photoUrl: '',
   scriptUrl: '', sheetUrl: '', email: ''
 };
 
@@ -631,6 +676,80 @@ function calcKm() {
   } else { hint.style.display = 'none'; }
 }
 
+// ── FUEL LEVEL ─────────────────────────────────────────
+function setFuelLevel(level) {
+  S.fuelLevel = level;
+  const ids = { 'Vacío':'fl-vacio', '1/4':'fl-1/4', '1/2':'fl-1/2', '3/4':'fl-3/4', 'Lleno':'fl-lleno', 'Reserva':'fl-reserva' };
+  Object.values(ids).forEach(id => { const el = document.getElementById(id); if(el) el.classList.remove('sel'); });
+  const selId = ids[level];
+  if (selId) { const el = document.getElementById(selId); if(el) el.classList.add('sel'); }
+}
+
+// ── PHOTO UPLOAD ────────────────────────────────────────
+async function handlePhoto(input) {
+  if (!input.files || !input.files[0]) return;
+  const file    = input.files[0];
+  const preview = document.getElementById('photo-preview');
+  const label   = document.getElementById('photo-label');
+  const uploading = document.getElementById('photo-uploading');
+  const dropArea  = document.getElementById('photo-drop');
+
+  // Show local preview immediately
+  const reader = new FileReader();
+  reader.onload = e => { preview.src = e.target.result; preview.style.display = 'block'; };
+  reader.readAsDataURL(file);
+
+  if (!S.scriptUrl) {
+    S.photoUrl = '';
+    dropArea.classList.add('has-photo');
+    label.textContent = '✅ Foto seleccionada';
+    return;
+  }
+
+  uploading.style.display = 'block';
+  label.textContent = 'Subiendo a Google Drive...';
+
+  try {
+    const base64 = await fileToBase64(file);
+    // Use fetch with cors mode — Apps Script with doPost supports it when deployed as "anyone"
+    const res = await fetch(S.scriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' }, // text/plain avoids preflight
+      body: JSON.stringify({
+        action: 'uploadPhoto',
+        filename: `foto_combustible_${Date.now()}.jpg`,
+        mimeType: file.type,
+        base64Data: base64,
+        conductor: S.currentDriver ? S.currentDriver.name : 'conductor'
+      })
+    });
+    const json = await res.json();
+    if (json.success && json.url) {
+      S.photoUrl = json.url;
+      dropArea.classList.add('has-photo');
+      label.textContent = '✅ Foto subida a Google Drive';
+    } else {
+      S.photoUrl = '';
+      label.textContent = '⚠️ No se pudo subir: ' + (json.error || 'error');
+    }
+  } catch(e) {
+    // Fallback: save indicator only (no-cors path)
+    S.photoUrl = '';
+    dropArea.classList.add('has-photo');
+    label.textContent = '✅ Foto lista (se subirá al guardar)';
+  }
+  uploading.style.display = 'none';
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 // ── SAVE RECORD ────────────────────────────────────────
 async function saveRecord() {
   const conductor = document.getElementById('f-conductor').value;
@@ -658,6 +777,8 @@ async function saveRecord() {
     estacion:     document.getElementById('f-estacion').value,
     tipoCombustible: document.getElementById('f-tipo-comb').value,
     notas: document.getElementById('f-notas').value,
+    nivelCombustible: S.fuelLevel || '',
+    fotoUrl: S.photoUrl || '',
     timestamp: new Date().toISOString()
   };
 
@@ -683,6 +804,18 @@ async function saveRecord() {
   ['f-origen','f-destino','f-km-ini','f-km-fin','f-proposito','f-litros','f-costo','f-estacion','f-notas'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
+  // Reset fuel level
+  S.fuelLevel = '';
+  Object.values({v:'fl-vacio',a:'fl-1/4',b:'fl-1/2',c:'fl-3/4',d:'fl-lleno',e:'fl-reserva'}).forEach(id => {
+    const el = document.getElementById(id); if(el) el.classList.remove('sel');
+  });
+  // Reset photo
+  S.photoUrl = '';
+  document.getElementById('f-photo').value = '';
+  document.getElementById('photo-preview').style.display = 'none';
+  document.getElementById('photo-preview').src = '';
+  document.getElementById('photo-label').textContent = 'Toca para tomar foto o seleccionar imagen';
+  document.getElementById('photo-drop').classList.remove('has-photo');
   document.getElementById('km-hint').style.display = 'none';
   setDefaultDateTime();
 }
@@ -708,10 +841,12 @@ function renderHistory() {
   cont.innerHTML = filtered.map(r => {
     const bc = r.tipo==='Viaje'?'badge-trip':r.tipo==='Combustible'?'badge-fuel':'badge-both';
     const pills = [];
-    if (r.kmRecorridos) pills.push(`📏 ${Number(r.kmRecorridos).toLocaleString()} km`);
-    if (r.litros)       pills.push(`⛽ ${Number(r.litros).toFixed(1)} L${r.tipoCombustible?' ('+r.tipoCombustible+')':''}`);
-    if (r.costoLempiras)pills.push(`💰 L ${Number(r.costoLempiras).toFixed(2)}`);
-    if (r.estacion)     pills.push(`🏪 ${r.estacion}`);
+    if (r.kmRecorridos)      pills.push(`📏 ${Number(r.kmRecorridos).toLocaleString()} km`);
+    if (r.litros)            pills.push(`⛽ ${Number(r.litros).toFixed(1)} L${r.tipoCombustible?' ('+r.tipoCombustible+')':''}`);
+    if (r.costoLempiras)     pills.push(`💰 L ${Number(r.costoLempiras).toFixed(2)}`);
+    if (r.estacion)          pills.push(`🏪 ${r.estacion}`);
+    if (r.nivelCombustible)  pills.push(`🔋 Nivel: ${r.nivelCombustible}`);
+    if (r.fotoUrl && r.fotoUrl.startsWith('http')) pills.push(`📷 <a href="${r.fotoUrl}" target="_blank" style="color:var(--accent)">Ver foto</a>`);
     return `<div class="rec-card">
       <div class="rec-head">
         <div>
@@ -1103,5 +1238,4 @@ window.onload = init;
 </script>
 </body>
 </html>
-
 
