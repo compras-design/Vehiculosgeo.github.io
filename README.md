@@ -1,4 +1,4 @@
-<Vehiculos Geo>
+
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -395,6 +395,7 @@
     <div style="display:flex;gap:10px;margin-bottom:1.5rem;flex-wrap:wrap">
       <button class="btn-sm" onclick="exportCSV()" style="padding:9px 16px;font-size:13px">⬇️ Descargar CSV (Excel)</button>
       <button class="btn-sm" onclick="openSheet()" style="padding:9px 16px;font-size:13px">📄 Ver Google Sheet</button>
+      <button class="btn-sm" onclick="syncAll()" style="padding:9px 16px;font-size:13px">🔄 Sincronizar ahora</button>
     </div>
 
     <div class="card">
@@ -430,24 +431,8 @@ const S = {
 };
 
 // ── INIT ───────────────────────────────────────────────
-function init() {
-  try { S.records  = JSON.parse(localStorage.getItem('bfl_records')  || '[]'); } catch(e) { S.records  = []; }
-  try { S.drivers  = JSON.parse(localStorage.getItem('bfl_drivers')  || '[]'); } catch(e) { S.drivers  = []; }
-  try { S.vehicles = JSON.parse(localStorage.getItem('bfl_vehicles') || '[]'); } catch(e) { S.vehicles = []; }
-
-  // Agregar conductores iniciales si la lista está vacía
-  if (S.drivers.length === 0) {
-    S.drivers = [
-      { id: uid(), name: 'Dennis Acosta',     license: '', phone: '' }
-    ];
-    persist();
-  }
-  // Siempre asegurar que Alejandro Fonseca exista como admin
-  if (!S.drivers.find(d => d.name === 'Alejandro Fonseca')) {
-    S.drivers.push({ id: uid(), name: 'Alejandro Fonseca', license: '', phone: '' });
-    persist();
-  }
-
+async function init() {
+  // Load config first
   S.scriptUrl = localStorage.getItem('bfl_script') || '';
   S.sheetUrl  = localStorage.getItem('bfl_sheet')  || '';
   S.email     = localStorage.getItem('bfl_email')  || '';
@@ -456,10 +441,43 @@ function init() {
   document.getElementById('cfg-email').value      = S.email;
 
   setDefaultDateTime();
+
+  // Load from Sheets if configured, otherwise fallback to localStorage
+  if (S.scriptUrl) {
+    showSyncBanner('Sincronizando datos...');
+    try {
+      const res = await fetch(S.scriptUrl + '?type=all');
+      const json = await res.json();
+      if (json.success) {
+        S.drivers  = json.drivers  || [];
+        S.vehicles = json.vehicles || [];
+        S.records  = json.records  || [];
+        persist(); // cache locally
+      } else { loadFromLocal(); }
+    } catch(e) { loadFromLocal(); }
+    hideSyncBanner();
+  } else {
+    loadFromLocal();
+  }
+
+  // Always ensure Alejandro Fonseca exists as admin driver
+  if (!S.drivers.find(d => d.name === 'Alejandro Fonseca')) {
+    const adminDriver = { id: uid(), name: 'Alejandro Fonseca', license: '', phone: '' };
+    S.drivers.push(adminDriver);
+    persist();
+    if (S.scriptUrl) apiPost({ action: 'saveDriver', ...adminDriver });
+  }
+  // Ensure Dennis Acosta exists if no drivers at all
+  if (S.drivers.length === 1 && S.drivers[0].name === 'Alejandro Fonseca') {
+    const d = { id: uid(), name: 'Dennis Acosta', license: '', phone: '' };
+    S.drivers.unshift(d);
+    persist();
+    if (S.scriptUrl) apiPost({ action: 'saveDriver', ...d });
+  }
+
   populateFormSelects();
   buildDriverModal();
 
-  // Restore admin session (persists while tab is open)
   S.isAdmin = sessionStorage.getItem('bfl_admin') === '1';
   applyRole();
 
@@ -468,6 +486,37 @@ function init() {
     const d = S.drivers.find(x => x.name === saved);
     if (d) selectDriver(d, false); else showDriverModal();
   } else { showDriverModal(); }
+}
+
+function loadFromLocal() {
+  try { S.records  = JSON.parse(localStorage.getItem('bfl_records')  || '[]'); } catch(e) { S.records  = []; }
+  try { S.drivers  = JSON.parse(localStorage.getItem('bfl_drivers')  || '[]'); } catch(e) { S.drivers  = []; }
+  try { S.vehicles = JSON.parse(localStorage.getItem('bfl_vehicles') || '[]'); } catch(e) { S.vehicles = []; }
+}
+
+// Generic API POST helper
+async function apiPost(data) {
+  if (!S.scriptUrl) return;
+  try {
+    await fetch(S.scriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  } catch(e) { console.warn('API error:', e); }
+}
+
+// Sync banner
+function showSyncBanner(msg) {
+  let b = document.getElementById('sync-banner');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'sync-banner';
+    b.style.cssText = 'position:fixed;top:54px;left:0;right:0;background:#1D4ED8;color:white;text-align:center;padding:8px;font-size:13px;z-index:200;';
+    document.body.appendChild(b);
+  }
+  b.textContent = '🔄 ' + msg;
+  b.style.display = 'block';
+}
+function hideSyncBanner() {
+  const b = document.getElementById('sync-banner');
+  if (b) b.style.display = 'none';
 }
 
 function persist() {
@@ -622,7 +671,7 @@ async function saveRecord() {
 
   if (S.scriptUrl) {
     try {
-      await fetch(S.scriptUrl, { method:'POST', mode:'no-cors', headers:{'Content-Type':'application/json'}, body: JSON.stringify(rec) });
+      await fetch(S.scriptUrl, { method:'POST', mode:'no-cors', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action: 'saveRecord', ...rec }) });
       toast('✅ Guardado en Google Sheets');
     } catch(e) { toast('⚠️ Guardado localmente (sin conexión)'); }
   } else {
@@ -687,8 +736,10 @@ function addDriver() {
   const phone   = document.getElementById('nc-telefono').value.trim();
   if (!name) { toast('⚠️ El nombre es requerido'); return; }
   if (S.drivers.find(d => d.name.toLowerCase() === name.toLowerCase())) { toast('⚠️ Ya existe ese conductor'); return; }
-  S.drivers.push({ id: uid(), name, license, phone });
+  const driver = { id: uid(), name, license, phone };
+  S.drivers.push(driver);
   persist();
+  apiPost({ action: 'saveDriver', ...driver });
   document.getElementById('nc-nombre').value    = '';
   document.getElementById('nc-licencia').value  = '';
   document.getElementById('nc-telefono').value  = '';
@@ -748,7 +799,9 @@ function saveEditDriver() {
       document.getElementById('driver-pill-name').textContent = name;
     }
   }
-  persist(); populateFormSelects(); buildDriverModal(); renderDriversList();
+  persist();
+  apiPost({ action: 'saveDriver', ...S.drivers[i] });
+  populateFormSelects(); buildDriverModal(); renderDriversList();
   closeModal('overlay-edit-driver');
   toast('✅ Conductor actualizado');
 }
@@ -757,7 +810,9 @@ function removeDriver(i) {
   const d = S.drivers[i];
   if (!confirm(`¿Eliminar a "${d.name}"?`)) return;
   S.drivers.splice(i, 1);
-  persist(); populateFormSelects(); buildDriverModal(); renderDriversList();
+  persist();
+  apiPost({ action: 'deleteDriver', id: d.id });
+  populateFormSelects(); buildDriverModal(); renderDriversList();
   if (S.currentDriver?.name === d.name) {
     S.currentDriver = null;
     localStorage.removeItem('bfl_current_driver');
@@ -779,8 +834,10 @@ function addVehicle() {
   const color = document.getElementById('nv-color').value.trim();
   if (!plate) { toast('⚠️ La placa es requerida'); return; }
   if (S.vehicles.find(v => v.plate === plate)) { toast('⚠️ Ya existe un vehículo con esa placa'); return; }
-  S.vehicles.push({ id: uid(), plate, model, year, type, color });
+  const vehicle = { id: uid(), plate, model, year, type, color };
+  S.vehicles.push(vehicle);
   persist();
+  apiPost({ action: 'saveVehicle', ...vehicle });
   document.getElementById('nv-placa').value  = '';
   document.getElementById('nv-modelo').value = '';
   document.getElementById('nv-anio').value   = '';
@@ -834,7 +891,9 @@ function saveEditVehicle() {
   const oldPlate = S.vehicles[i].plate;
   S.vehicles[i] = { ...S.vehicles[i], plate, model: document.getElementById('ev-modelo').value.trim(), year: document.getElementById('ev-anio').value.trim(), type: document.getElementById('ev-tipo').value, color: document.getElementById('ev-color').value.trim() };
   if (oldPlate !== plate) S.records.forEach(r => { if (r.vehiculo === oldPlate) r.vehiculo = plate; });
-  persist(); populateFormSelects(); renderVehiclesList();
+  persist();
+  apiPost({ action: 'saveVehicle', ...S.vehicles[i] });
+  populateFormSelects(); renderVehiclesList();
   closeModal('overlay-edit-vehicle');
   toast('✅ Vehículo actualizado');
 }
@@ -843,7 +902,9 @@ function removeVehicle(i) {
   const v = S.vehicles[i];
   if (!confirm(`¿Eliminar el vehículo "${v.plate}"?`)) return;
   S.vehicles.splice(i, 1);
-  persist(); populateFormSelects(); renderVehiclesList();
+  persist();
+  apiPost({ action: 'deleteVehicle', id: v.id });
+  populateFormSelects(); renderVehiclesList();
   toast(`${v.plate} eliminado`);
 }
 
@@ -945,6 +1006,29 @@ function applyRole() {
   document.getElementById('nav-admin-lock').style.display = isAdmin ? 'none' : '';
   // Show/hide admin badge
   document.getElementById('admin-badge').classList.toggle('visible', isAdmin);
+}
+
+// ── SYNC ALL ───────────────────────────────────────────
+async function syncAll() {
+  if (!S.scriptUrl) { toast('Configura el Google Apps Script en Admin primero'); return; }
+  showSyncBanner('Sincronizando...');
+  try {
+    const res = await fetch(S.scriptUrl + '?type=all');
+    const json = await res.json();
+    if (json.success) {
+      S.drivers  = json.drivers  || [];
+      S.vehicles = json.vehicles || [];
+      S.records  = json.records  || [];
+      persist();
+      populateFormSelects();
+      buildDriverModal();
+      renderDriversList();
+      renderVehiclesList();
+      renderHistory();
+      toast('✅ Datos sincronizados');
+    } else { toast('⚠️ Error al sincronizar: ' + json.error); }
+  } catch(e) { toast('⚠️ Sin conexión a Google Sheets'); }
+  hideSyncBanner();
 }
 
 // ── TOAST ──────────────────────────────────────────────
