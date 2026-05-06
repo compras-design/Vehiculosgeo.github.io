@@ -432,10 +432,20 @@ const S = {
 
 // ── INIT ───────────────────────────────────────────────
 async function init() {
-  // Load config first
-  S.scriptUrl = localStorage.getItem('bfl_script') || '';
-  S.sheetUrl  = localStorage.getItem('bfl_sheet')  || '';
-  S.email     = localStorage.getItem('bfl_email')  || '';
+  // Default config — hardcoded so all devices work automatically
+  const DEFAULT_SCRIPT = 'https://script.google.com/macros/s/AKfycbzm6dP6E0azPXi84P15f8CIyW2w2ngzKDVjIwoiqPNDy6v6fGD6D0iV_LkQKrz5aFju/exec';
+  const DEFAULT_SHEET  = 'https://docs.google.com/spreadsheets/d/1tZiAT8Xtfomgzu8nqAa5FK8InXxSsjvlQHZxXHIslsU/edit?usp=sharing';
+  const DEFAULT_EMAIL  = 'compras@geotecnica.hn';
+
+  S.scriptUrl = localStorage.getItem('bfl_script') || DEFAULT_SCRIPT;
+  S.sheetUrl  = localStorage.getItem('bfl_sheet')  || DEFAULT_SHEET;
+  S.email     = localStorage.getItem('bfl_email')  || DEFAULT_EMAIL;
+
+  // Save defaults to localStorage so they persist
+  if (!localStorage.getItem('bfl_script')) localStorage.setItem('bfl_script', DEFAULT_SCRIPT);
+  if (!localStorage.getItem('bfl_sheet'))  localStorage.setItem('bfl_sheet',  DEFAULT_SHEET);
+  if (!localStorage.getItem('bfl_email'))  localStorage.setItem('bfl_email',  DEFAULT_EMAIL);
+
   document.getElementById('cfg-script-url').value = S.scriptUrl;
   document.getElementById('cfg-sheet-url').value  = S.sheetUrl;
   document.getElementById('cfg-email').value      = S.email;
@@ -1093,3 +1103,4 @@ window.onload = init;
 </script>
 </body>
 </html>
+
