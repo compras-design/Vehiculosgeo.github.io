@@ -109,6 +109,7 @@
   .rec-route { font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
   .rec-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .pill { background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px; font-size: 12px; font-family: 'DM Mono', monospace; color: var(--text-muted); }
+  .pill-rendimiento { background: var(--green-light); border: 1px solid #86EFAC; border-radius: 20px; padding: 4px 12px; font-size: 12px; font-family: 'DM Mono', monospace; color: var(--green); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
   .rec-notes { font-size: 12px; color: var(--text-faint); margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; font-style: italic; }
 
   .filter-row { display: flex; gap: 8px; margin-bottom: 1rem; flex-wrap: wrap; }
@@ -361,9 +362,10 @@
 
   <!-- HISTORIAL -->
   <div class="section" id="sec-historial">
-    <div class="stats-row">
+    <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
       <div class="stat-box"><div class="stat-num" id="s-km">—</div><div class="stat-lbl">Km este mes</div></div>
       <div class="stat-box"><div class="stat-num" id="s-fuel">—</div><div class="stat-lbl">Litros cargados</div></div>
+      <div class="stat-box"><div class="stat-num" id="s-rendimiento" style="color:var(--green)">—</div><div class="stat-lbl">Km / Galón prom.</div></div>
       <div class="stat-box"><div class="stat-num" id="s-total">—</div><div class="stat-lbl">Registros totales</div></div>
     </div>
     <div class="filter-row">
@@ -821,6 +823,52 @@ async function saveRecord() {
 }
 
 // ── HISTORY ────────────────────────────────────────────
+// ── RENDIMIENTO (km/galón) ──────────────────────────────
+// 1 galón = 3.785 litros
+const LITROS_POR_GALON = 3.785;
+
+function calcRendimiento(kmRecorridos, litros) {
+  const km  = Number(kmRecorridos) || 0;
+  const lit = Number(litros)       || 0;
+  if (km <= 0 || lit <= 0) return null;
+  const kmPorLitro = km / lit;
+  const kmPorGalon = kmPorLitro * LITROS_POR_GALON;
+  return { kmPorLitro, kmPorGalon };
+}
+
+// For a given vehicle, find km driven since last fuel-up before this record
+function calcRendimientoContextual(record, allRecords) {
+  const lit = Number(record.litros) || 0;
+  if (lit <= 0) return null;
+
+  // Find all records for same vehicle, sorted oldest→newest
+  const vehRecs = allRecords
+    .filter(r => r.vehiculo === record.vehiculo && r.vehiculo)
+    .sort((a,b) => new Date(a.fecha+' '+(a.hora||'00:00')) - new Date(b.fecha+' '+(b.hora||'00:00')));
+
+  const idx = vehRecs.findIndex(r => r.id === record.id);
+  if (idx < 0) return null;
+
+  // Sum km from last fuel record (or beginning) up to this one
+  let kmAcum = 0;
+  for (let i = idx - 1; i >= 0; i--) {
+    const r = vehRecs[i];
+    kmAcum += Number(r.kmRecorridos) || 0;
+    // If this previous record also had fuel, stop here (that was the last fill-up)
+    if (Number(r.litros) > 0) break;
+  }
+  // Also include km in this same record if it's a viaje+combustible
+  kmAcum += Number(record.kmRecorridos) || 0;
+
+  return calcRendimiento(kmAcum, lit);
+}
+
+function rendimientoLabel(rend) {
+  if (!rend) return '';
+  const rating = rend.kmPorGalon >= 12 ? '🟢' : rend.kmPorGalon >= 8 ? '🟡' : '🔴';
+  return `${rating} ${rend.kmPorGalon.toFixed(1)} km/gal · ${rend.kmPorLitro.toFixed(2)} km/L`;
+}
+
 function renderHistory() {
   const ft = document.getElementById('filt-tipo').value;
   const fc = document.getElementById('filt-conductor').value;
@@ -829,9 +877,15 @@ function renderHistory() {
 
   const now = new Date();
   const thisMonth = S.records.filter(r => { const d=new Date(r.fecha); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); });
-  document.getElementById('s-km').textContent    = thisMonth.reduce((a,r)=>a+(Number(r.kmRecorridos)||0),0).toLocaleString();
-  document.getElementById('s-fuel').textContent  = thisMonth.reduce((a,r)=>a+(Number(r.litros)||0),0).toFixed(0)+' L';
-  document.getElementById('s-total').textContent = S.records.length;
+  const totalKm   = thisMonth.reduce((a,r)=>a+(Number(r.kmRecorridos)||0),0);
+  const totalLit  = thisMonth.reduce((a,r)=>a+(Number(r.litros)||0),0);
+
+  // Overall km/galón this month
+  const rendMes = calcRendimiento(totalKm, totalLit);
+  document.getElementById('s-km').textContent          = totalKm.toLocaleString();
+  document.getElementById('s-fuel').textContent        = totalLit.toFixed(0)+' L';
+  document.getElementById('s-rendimiento').textContent = rendMes ? rendMes.kmPorGalon.toFixed(1) : '—';
+  document.getElementById('s-total').textContent       = S.records.length;
 
   const cont = document.getElementById('history-container');
   if (!filtered.length) {
@@ -847,6 +901,13 @@ function renderHistory() {
     if (r.estacion)          pills.push(`🏪 ${r.estacion}`);
     if (r.nivelCombustible)  pills.push(`🔋 Nivel: ${r.nivelCombustible}`);
     if (r.fotoUrl && r.fotoUrl.startsWith('http')) pills.push(`📷 <a href="${r.fotoUrl}" target="_blank" style="color:var(--accent)">Ver foto</a>`);
+
+    // Rendimiento: only show on records that have fuel
+    const rend = (Number(r.litros) > 0) ? calcRendimientoContextual(r, S.records) : null;
+    const rendHTML = rend
+      ? `<div style="margin-top:8px"><span class="pill-rendimiento">⚡ ${rendimientoLabel(rend)}</span></div>`
+      : '';
+
     return `<div class="rec-card">
       <div class="rec-head">
         <div>
@@ -859,6 +920,7 @@ function renderHistory() {
       ${r.origen?`<div class="rec-route">📍 ${r.origen} → ${r.destino}</div>`:''}
       ${r.proposito?`<div style="font-size:12px;color:var(--text-muted)">${r.proposito}</div>`:''}
       ${pills.length?`<div class="rec-pills">${pills.map(p=>`<span class="pill">${p}</span>`).join('')}</div>`:''}
+      ${rendHTML}
       ${r.notas?`<div class="rec-notes">${r.notas}</div>`:''}
     </div>`;
   }).join('');
