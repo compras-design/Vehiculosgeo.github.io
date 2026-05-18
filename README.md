@@ -1,4 +1,5 @@
 
+
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -111,6 +112,7 @@
   .pill { background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px; font-size: 12px; font-family: 'DM Mono', monospace; color: var(--text-muted); }
   .pill-rendimiento { background: var(--green-light); border: 1px solid #86EFAC; border-radius: 20px; padding: 4px 12px; font-size: 12px; font-family: 'DM Mono', monospace; color: var(--green); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
   .rec-notes { font-size: 12px; color: var(--text-faint); margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; font-style: italic; }
+  .rec-admin-bar { display: flex; gap: 6px; justify-content: flex-end; padding-top: 8px; margin-top: 8px; border-top: 1px solid var(--border); }
 
   .filter-row { display: flex; gap: 8px; margin-bottom: 1rem; flex-wrap: wrap; }
   .filter-row select { flex: 1; min-width: 130px; font-family: 'DM Sans', sans-serif; font-size: 13px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 7px 10px; background: var(--surface); color: var(--text); outline: none; }
@@ -237,6 +239,67 @@
     </div>
     <input type="hidden" id="ev-index">
     <button class="btn-primary" onclick="saveEditVehicle()">Guardar cambios</button>
+  </div>
+</div>
+
+<!-- EDITAR REGISTRO (Admin) -->
+<div class="overlay hidden" id="overlay-edit-record">
+  <div class="modal" style="max-width:580px">
+    <div class="modal-header">
+      <h2>✏️ Editar registro</h2>
+      <button class="modal-close" onclick="closeModal('overlay-edit-record')">✕</button>
+    </div>
+    <div class="grid2">
+      <div class="fg"><label>Conductor</label>
+        <select id="er-conductor"><option value="">Seleccionar...</option></select>
+      </div>
+      <div class="fg"><label>Vehículo / Placa</label>
+        <select id="er-vehiculo"><option value="">Seleccionar...</option></select>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="fg"><label>Fecha</label><input type="date" id="er-fecha"></div>
+      <div class="fg"><label>Hora</label><input type="time" id="er-hora"></div>
+    </div>
+    <div class="fg"><label>Tipo</label>
+      <select id="er-tipo">
+        <option value="Viaje">Viaje</option>
+        <option value="Combustible">Combustible</option>
+        <option value="Viaje + Combustible">Viaje + Combustible</option>
+      </select>
+    </div>
+    <div id="er-trip-fields">
+      <div class="grid2">
+        <div class="fg"><label>Origen</label><input type="text" id="er-origen"></div>
+        <div class="fg"><label>Destino</label><input type="text" id="er-destino"></div>
+      </div>
+      <div class="grid2">
+        <div class="fg"><label>Km inicial</label><input type="number" id="er-km-ini" oninput="erCalcKm()"></div>
+        <div class="fg"><label>Km final</label><input type="number" id="er-km-fin" oninput="erCalcKm()"></div>
+      </div>
+      <div class="km-hint" id="er-km-hint" style="margin-bottom:12px">📏 Recorrido: <span id="er-km-calc">0</span> km</div>
+      <div class="fg"><label>Propósito / Carga</label><input type="text" id="er-proposito"></div>
+    </div>
+    <div id="er-fuel-fields">
+      <div class="grid3">
+        <div class="fg"><label>Litros</label><input type="number" id="er-litros" step="0.1"></div>
+        <div class="fg"><label>Costo (L)</label><input type="number" id="er-costo" step="0.01"></div>
+        <div class="fg"><label>Tipo combustible</label>
+          <select id="er-tipo-comb"><option>Diesel</option><option>Regular</option><option>Premium</option></select>
+        </div>
+      </div>
+      <div class="fg"><label>Gasolinera</label><input type="text" id="er-estacion"></div>
+      <div class="fg"><label>Nivel combustible</label>
+        <select id="er-nivel-comb">
+          <option value="">Sin especificar</option>
+          <option>Vacío</option><option>Reserva</option><option>1/4</option>
+          <option>1/2</option><option>3/4</option><option>Lleno</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg" style="margin-bottom:1.25rem"><label>Notas</label><textarea id="er-notas"></textarea></div>
+    <input type="hidden" id="er-record-id">
+    <button class="btn-primary" onclick="saveEditRecord()">Guardar cambios</button>
   </div>
 </div>
 
@@ -908,6 +971,12 @@ function renderHistory() {
       ? `<div style="margin-top:8px"><span class="pill-rendimiento">⚡ ${rendimientoLabel(rend)}</span></div>`
       : '';
 
+    const adminBar = S.isAdmin
+      ? `<div class="rec-admin-bar">
+           <button class="btn-sm edit" onclick="openEditRecord('${r.id}')" style="font-size:11px;padding:4px 10px">✏️ Editar</button>
+           <button class="btn-sm danger" onclick="deleteRecord('${r.id}')" style="font-size:11px;padding:4px 10px">🗑️ Eliminar</button>
+         </div>` : '';
+
     return `<div class="rec-card">
       <div class="rec-head">
         <div>
@@ -922,6 +991,7 @@ function renderHistory() {
       ${pills.length?`<div class="rec-pills">${pills.map(p=>`<span class="pill">${p}</span>`).join('')}</div>`:''}
       ${rendHTML}
       ${r.notas?`<div class="rec-notes">${r.notas}</div>`:''}
+      ${adminBar}
     </div>`;
   }).join('');
 }
@@ -1103,6 +1173,144 @@ function removeVehicle(i) {
   apiPost({ action: 'deleteVehicle', id: v.id });
   populateFormSelects(); renderVehiclesList();
   toast(`${v.plate} eliminado`);
+}
+
+// ── EDIT / DELETE RECORD (Admin) ───────────────────────
+function openEditRecord(id) {
+  if (!S.isAdmin) return;
+  const r = S.records.find(x => x.id === id);
+  if (!r) return;
+
+  // Populate conductor & vehicle selects
+  const cSel = document.getElementById('er-conductor');
+  const vSel = document.getElementById('er-vehiculo');
+  while (cSel.options.length > 1) cSel.remove(1);
+  while (vSel.options.length > 1) vSel.remove(1);
+  S.drivers.forEach(d  => cSel.add(new Option(d.name, d.name)));
+  S.vehicles.forEach(v => vSel.add(new Option(`${v.plate} — ${v.model||v.type}`, v.plate)));
+
+  // Fill fields
+  cSel.value = r.conductor;
+  vSel.value = r.vehiculo;
+  document.getElementById('er-fecha').value      = r.fecha       || '';
+  document.getElementById('er-hora').value       = r.hora        || '';
+  document.getElementById('er-tipo').value       = r.tipo        || 'Viaje';
+  document.getElementById('er-origen').value     = r.origen      || '';
+  document.getElementById('er-destino').value    = r.destino     || '';
+  document.getElementById('er-km-ini').value     = r.kmInicial   || '';
+  document.getElementById('er-km-fin').value     = r.kmFinal     || '';
+  document.getElementById('er-proposito').value  = r.proposito   || '';
+  document.getElementById('er-litros').value     = r.litros      || '';
+  document.getElementById('er-costo').value      = r.costoLempiras || '';
+  document.getElementById('er-tipo-comb').value  = r.tipoCombustible || 'Diesel';
+  document.getElementById('er-estacion').value   = r.estacion    || '';
+  document.getElementById('er-nivel-comb').value = r.nivelCombustible || '';
+  document.getElementById('er-notas').value      = r.notas       || '';
+  document.getElementById('er-record-id').value  = id;
+
+  erToggleFields(r.tipo);
+  erCalcKm();
+  document.getElementById('overlay-edit-record').classList.remove('hidden');
+}
+
+// Show/hide trip vs fuel fields based on type
+document.addEventListener('DOMContentLoaded', () => {
+  const tipSel = document.getElementById('er-tipo');
+  if (tipSel) tipSel.addEventListener('change', () => erToggleFields(tipSel.value));
+});
+
+function erToggleFields(tipo) {
+  const trip = document.getElementById('er-trip-fields');
+  const fuel = document.getElementById('er-fuel-fields');
+  if (!trip || !fuel) return;
+  trip.style.display = tipo === 'Combustible' ? 'none' : 'block';
+  fuel.style.display = tipo === 'Viaje'       ? 'none' : 'block';
+}
+
+function erCalcKm() {
+  const ini  = parseInt(document.getElementById('er-km-ini').value) || 0;
+  const fin  = parseInt(document.getElementById('er-km-fin').value) || 0;
+  const hint = document.getElementById('er-km-hint');
+  if (ini > 0 && fin > ini) {
+    document.getElementById('er-km-calc').textContent = (fin - ini).toLocaleString();
+    hint.style.display = 'block';
+  } else { hint.style.display = 'none'; }
+}
+
+function saveEditRecord() {
+  const id  = document.getElementById('er-record-id').value;
+  const idx = S.records.findIndex(x => x.id === id);
+  if (idx === -1) { toast('⚠️ Registro no encontrado'); return; }
+
+  const conductor = document.getElementById('er-conductor').value;
+  const fecha     = document.getElementById('er-fecha').value;
+  if (!conductor || !fecha) { toast('⚠️ Conductor y fecha son requeridos'); return; }
+
+  const ini = parseInt(document.getElementById('er-km-ini').value) || 0;
+  const fin = parseInt(document.getElementById('er-km-fin').value) || 0;
+  const tipo = document.getElementById('er-tipo').value;
+
+  // Find vehicle model
+  const plate = document.getElementById('er-vehiculo').value;
+  const veh   = S.vehicles.find(v => v.plate === plate);
+
+  S.records[idx] = {
+    ...S.records[idx],
+    conductor,
+    vehiculo:        plate,
+    modeloVehiculo:  veh ? (veh.model || veh.type) : S.records[idx].modeloVehiculo,
+    fecha,
+    hora:            document.getElementById('er-hora').value,
+    tipo,
+    origen:          document.getElementById('er-origen').value,
+    destino:         document.getElementById('er-destino').value,
+    kmInicial:       ini || '',
+    kmFinal:         fin || '',
+    kmRecorridos:    (fin > ini) ? fin - ini : '',
+    proposito:       document.getElementById('er-proposito').value,
+    litros:          parseFloat(document.getElementById('er-litros').value)  || '',
+    costoLempiras:   parseFloat(document.getElementById('er-costo').value)   || '',
+    tipoCombustible: document.getElementById('er-tipo-comb').value,
+    estacion:        document.getElementById('er-estacion').value,
+    nivelCombustible:document.getElementById('er-nivel-comb').value,
+    notas:           document.getElementById('er-notas').value,
+    editadoPor:      'Admin',
+    editadoFecha:    new Date().toISOString()
+  };
+
+  persist();
+  // Sync edit to Sheets
+  if (S.scriptUrl) {
+    fetch(S.scriptUrl, {
+      method: 'POST', headers: {'Content-Type':'text/plain'},
+      body: JSON.stringify({ action:'editRecord', record: S.records[idx] })
+    }).catch(() => {});
+  }
+
+  closeModal('overlay-edit-record');
+  renderHistory();
+  toast('✅ Registro actualizado');
+}
+
+function deleteRecord(id) {
+  const r = S.records.find(x => x.id === id);
+  if (!r) return;
+  if (!confirm(`¿Eliminar el registro de ${r.conductor} del ${r.fecha}?
+Esta acción no se puede deshacer.`)) return;
+
+  S.records = S.records.filter(x => x.id !== id);
+  persist();
+
+  // Sync deletion to Sheets
+  if (S.scriptUrl) {
+    fetch(S.scriptUrl, {
+      method: 'POST', headers: {'Content-Type':'text/plain'},
+      body: JSON.stringify({ action:'deleteRecord', id })
+    }).catch(() => {});
+  }
+
+  renderHistory();
+  toast('🗑️ Registro eliminado');
 }
 
 // ── NAV ────────────────────────────────────────────────
